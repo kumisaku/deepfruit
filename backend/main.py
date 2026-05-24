@@ -19,10 +19,15 @@ Cara menjalankan:
 
 import io
 import json
+import logging
 import os
+import traceback
 
 import numpy as np
 import tensorflow as tf
+
+logging.basicConfig(level=logging.INFO)
+logger = logging.getLogger(__name__)
 from fastapi import FastAPI, File, HTTPException, UploadFile, Request
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import JSONResponse
@@ -43,6 +48,7 @@ app.add_middleware(
 
 @app.exception_handler(Exception)
 async def global_exception_handler(request: Request, exc: Exception):
+    logger.error(f"Unhandled exception: {traceback.format_exc()}")
     return JSONResponse(
         status_code=500,
         content={"detail": f"Internal server error: {str(exc)}"},
@@ -110,8 +116,10 @@ async def predict(file: UploadFile = File(...)):
     try:
         model, CLASS_NAMES = _load_model()
     except FileNotFoundError as e:
+        logger.error(f"Model tidak ditemukan: {e}")
         raise HTTPException(status_code=503, detail=str(e))
     except Exception as e:
+        logger.error(f"Gagal memuat model: {traceback.format_exc()}")
         raise HTTPException(status_code=500, detail=f"Gagal memuat model: {str(e)}")
 
     probs = model.predict(batch, verbose=0)[0]
