@@ -1,9 +1,9 @@
-FROM python:3.11-slim
+FROM tensorflow/tensorflow:2.17.0
 
 WORKDIR /app
 
 COPY requirements.txt .
-RUN pip install --no-cache-dir -r requirements.txt
+RUN pip install --no-cache-dir fastapi==0.115.0 "uvicorn[standard]==0.30.6" pillow==10.4.0 python-multipart==0.0.9
 
 COPY . .
 
