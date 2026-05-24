@@ -23,8 +23,9 @@ import os
 
 import numpy as np
 import tensorflow as tf
-from fastapi import FastAPI, File, HTTPException, UploadFile
+from fastapi import FastAPI, File, HTTPException, UploadFile, Request
 from fastapi.middleware.cors import CORSMiddleware
+from fastapi.responses import JSONResponse
 from PIL import Image
 
 MODEL_DIR = os.environ.get("MODEL_DIR", "../model")
@@ -35,10 +36,18 @@ app = FastAPI(title="DeepFruit API", version="1.0.0")
 
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=["*"],          # ganti dengan URL frontend saat produksi
+    allow_origins=["*"],
     allow_methods=["*"],
     allow_headers=["*"],
 )
+
+@app.exception_handler(Exception)
+async def global_exception_handler(request: Request, exc: Exception):
+    return JSONResponse(
+        status_code=500,
+        content={"detail": f"Internal server error: {str(exc)}"},
+        headers={"Access-Control-Allow-Origin": "*"},
+    )
 
 # --- Muat model + label sekali saat startup (lazy — tidak crash jika belum ada) ---
 _model = None
@@ -102,6 +111,8 @@ async def predict(file: UploadFile = File(...)):
         model, CLASS_NAMES = _load_model()
     except FileNotFoundError as e:
         raise HTTPException(status_code=503, detail=str(e))
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=f"Gagal memuat model: {str(e)}")
 
     probs = model.predict(batch, verbose=0)[0]
     top = int(np.argmax(probs))
