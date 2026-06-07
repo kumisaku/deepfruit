@@ -1,4 +1,5 @@
 import React, { useState, useRef, useCallback } from "react";
+import * as XLSX from "xlsx";
 import {
   Leaf, ArrowRight, BadgeCheck, Gauge, Microscope, MousePointerClick,
   Camera, Wifi, Sun, BrainCircuit, FileUp, ScanSearch, ShieldCheck,
@@ -325,6 +326,47 @@ function Deteksi() {
     setMode(m);
   }
 
+  function exportExcel() {
+    const wb = XLSX.utils.book_new();
+
+    // Sheet 1: Hasil analisis terakhir
+    if (result) {
+      const detail = [
+        ["DeepFruit — Laporan Analisis Kesegaran Buah"],
+        [],
+        ["Tanggal Analisis", today()],
+        ["Nama Buah", result.fruit || "-"],
+        ["Status", result.uncertain ? "Tidak Yakin" : (result.fresh ? "SEGAR" : "BUSUK")],
+        ["Skor Kualitas (%)", result.score ?? "-"],
+        ["Grade", result.uncertain ? "-" : (result.grade || "-")],
+        ["Integritas Kulit", result.uncertain ? "-" : (result.skin || "-")],
+        ["Keseragaman Warna", result.uncertain ? "-" : (result.color || "-")],
+        ["Wawasan AI", result.advice || "-"],
+        [],
+        ["* Integritas Kulit & Keseragaman Warna adalah estimasi turunan dari skor model, bukan output terpisah."],
+      ];
+      const ws1 = XLSX.utils.aoa_to_sheet(detail);
+      ws1["!cols"] = [{ wch: 28 }, { wch: 60 }];
+      XLSX.utils.book_append_sheet(wb, ws1, "Hasil Analisis");
+    }
+
+    // Sheet 2: Riwayat sesi ini
+    const riwayatHeader = [["No", "Tanggal", "Buah", "Status", "Skor (%)"]];
+    const riwayatRows = history.map((h, i) => [
+      i + 1,
+      h.date,
+      h.fruit,
+      h.label || (h.tone === "good" ? "Segar" : "Busuk"),
+      h.score,
+    ]);
+    const ws2 = XLSX.utils.aoa_to_sheet([...riwayatHeader, ...riwayatRows]);
+    ws2["!cols"] = [{ wch: 5 }, { wch: 20 }, { wch: 18 }, { wch: 12 }, { wch: 10 }];
+    XLSX.utils.book_append_sheet(wb, ws2, "Riwayat");
+
+    const fileName = `DeepFruit_${new Date().toISOString().slice(0, 10)}.xlsx`;
+    XLSX.writeFile(wb, fileName);
+  }
+
   return (
     <main className="wrap deteksi">
       <div className="center-head">
@@ -458,8 +500,9 @@ function Deteksi() {
             <h3 className="wawasan"><Lightbulb size={18} /> Wawasan AI</h3>
             <p className="advice">{result ? result.advice : "Unggah dan analisis gambar buah untuk menerima rekomendasi penyimpanan dan estimasi masa simpan dari model AI."}</p>
             <div className="row-btns">
-              <button className="btn btn-outline">Simpan Laporan</button>
-              <button className="btn btn-primary"><Download size={15} /> Ekspor Data</button>
+              <button className="btn btn-primary" onClick={exportExcel} disabled={!result && history.length === 0}>
+                <Download size={15} /> Ekspor Excel
+              </button>
             </div>
             {result && !result.uncertain && (
               <p className="estimate-note">* Skor utama berasal dari model AI (segar/busuk). Integritas kulit & keseragaman warna adalah estimasi turunan dari skor tersebut.</p>
