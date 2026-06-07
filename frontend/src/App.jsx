@@ -181,6 +181,7 @@ function Deteksi() {
   const [result, setResult] = useState(null);
   const [progress, setProgress] = useState(0);
   const [errorMsg, setErrorMsg] = useState("");
+  const [slowWarning, setSlowWarning] = useState(false);
   const [dragging, setDragging] = useState(false);
   const inputRef = useRef(null);
 
@@ -213,14 +214,21 @@ function Deteksi() {
 
   async function analyze() {
     if (!file) return;
-    setStatus("loading"); setErrorMsg(""); setProgress(0);
+    setStatus("loading"); setErrorMsg(""); setProgress(0); setSlowWarning(false);
     const tick = setInterval(() => setProgress((p) => Math.min(95, p + Math.random() * 18)), 220);
+    const warnTimer = setTimeout(() => setSlowWarning(true), 8000);
     try {
       const data = await predictFruit(file);
-      clearInterval(tick); setProgress(100); applyResult(data);
-    } catch {
-      clearInterval(tick); setStatus("error");
-      setErrorMsg("Tidak bisa terhubung ke server AI (" + API_URL + "). Pastikan backend FastAPI berjalan, atau lihat contoh hasil.");
+      clearInterval(tick); clearTimeout(warnTimer);
+      setProgress(100); setSlowWarning(false); applyResult(data);
+    } catch (err) {
+      clearInterval(tick); clearTimeout(warnTimer);
+      setSlowWarning(false); setStatus("error");
+      if (err.message === "TIMEOUT") {
+        setErrorMsg("Server butuh waktu lebih lama. Coba lagi — biasanya request kedua langsung berhasil.");
+      } else {
+        setErrorMsg("Tidak bisa terhubung ke server AI. Pastikan koneksi internet aktif, lalu coba lagi.");
+      }
     }
   }
 
@@ -363,6 +371,7 @@ function Deteksi() {
                 <div className="progress">
                   <div className="progress-top"><span>{status === "loading" ? "Memindai..." : "Selesai"}</span><strong>{Math.round(progress)}%</strong></div>
                   <div className="bar"><div className="bar-fill" style={{ width: progress + "%" }} /></div>
+                  {slowWarning && <p className="slow-warn">⏳ Server sedang bangun dari mode tidur, harap tunggu sebentar...</p>}
                 </div>
               )}
               {imageUrl && status !== "loading" && status !== "done" && (
@@ -704,6 +713,7 @@ a{cursor:pointer;}
 .progress-top strong{color:var(--green);}
 .bar{height:8px;background:#e7ebf1;border-radius:999px;overflow:hidden;}
 .bar-fill{height:100%;background:var(--green);border-radius:999px;transition:width .25s;}
+.slow-warn{font-size:12.5px;color:#9a5b16;margin-top:8px;text-align:center;}
 .error-box{margin-top:16px;background:var(--warn-soft);color:#9a4a16;border-radius:12px;padding:14px;font-size:13.5px;line-height:1.5;}
 .error-box .link{display:block;margin-top:8px;}
 .demo{display:block;margin:16px auto 0;}
