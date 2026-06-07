@@ -174,6 +174,7 @@ function Beranda({ go }) {
 
 /* ====================== DETEKSI ====================== */
 function Deteksi() {
+  const [mode, setMode] = useState("upload");
   const [imageUrl, setImageUrl] = useState(null);
   const [file, setFile] = useState(null);
   const [status, setStatus] = useState("idle");
@@ -182,11 +183,27 @@ function Deteksi() {
   const [errorMsg, setErrorMsg] = useState("");
   const [dragging, setDragging] = useState(false);
   const inputRef = useRef(null);
+
+  // Live detection refs & state
+  const videoRef = useRef(null);
+  const canvasRef = useRef(null);
+  const streamRef = useRef(null);
+  const intervalRef = useRef(null);
+  const isBusyRef = useRef(false);
+  const [liveActive, setLiveActive] = useState(false);
+  const [liveStatus, setLiveStatus] = useState("idle"); // idle | scanning | done
+  const [cameraError, setCameraError] = useState("");
+
   const [history, setHistory] = useState([
     { date: "Oct 24, 2023", fruit: "Nanas (Premium)", score: 92, tone: "good", kind: "pineapple" },
     { date: "Oct 23, 2023", fruit: "Pisang (Terlalu Matang)", score: 64, tone: "warn", kind: "banana" },
     { date: "Oct 21, 2023", fruit: "Jeruk (Standar)", score: 88, tone: "good", kind: "orange" },
   ]);
+
+  // Bersihkan kamera saat ganti mode atau unmount
+  React.useEffect(() => {
+    return () => stopCamera();
+  }, []);
 
   const handleFiles = useCallback((files) => {
     const f = files?.[0];
@@ -209,20 +226,15 @@ function Deteksi() {
 
   function applyResult(data) {
     const conf = Math.round((data.confidence ?? 0) * 100);
-
-    // Keyakinan rendah / bukan buah -> jangan paksa tebakan
     if (data.status === "uncertain") {
       setResult({
-        uncertain: true,
-        score: conf,
+        uncertain: true, score: conf,
         fruit: cap((data.fruit || "").trim()),
-        advice: data.message ||
-          "Model tidak cukup yakin dengan gambar ini. Coba foto ulang dengan latar polos, pencahayaan baik, dan satu buah per gambar.",
+        advice: data.message || "Model tidak cukup yakin dengan gambar ini. Coba arahkan kamera lebih dekat dengan pencahayaan baik.",
       });
       setStatus("done");
       return;
     }
-
     const fresh = data.layak !== false && data.status !== "rotten";
     setResult({
       score: fresh ? Math.max(conf, 70) : Math.min(100 - conf, 60),
@@ -238,52 +250,162 @@ function Deteksi() {
     setStatus("done");
     setHistory((h) => [{ date: today(), fruit: cap((data.fruit || "Buah").trim()), score: fresh ? Math.max(conf, 70) : Math.min(100 - conf, 60), tone: fresh ? "good" : "warn", kind: guessKind(data.fruit) }, ...h].slice(0, 4));
   }
+
   function demo() { applyResult({ confidence: 0.95, layak: true, status: "fresh", fruit: "apel" }); }
   function reset() { setImageUrl(null); setFile(null); setResult(null); setStatus("idle"); setProgress(0); }
+
+  // ── Live Detection ────────────────────────────────────────
+  async function startCamera() {
+    setCameraError("");
+    try {
+      const stream = await navigator.mediaDevices.getUserMedia({
+        video: { facingMode: "environment", width: { ideal: 640 }, height: { ideal: 480 } },
+      });
+      streamRef.current = stream;
+      if (videoRef.current) { videoRef.current.srcObject = stream; }
+      setLiveActive(true);
+      setResult(null);
+      // Scan setiap 3 detik
+      intervalRef.current = setInterval(captureAndPredict, 3000);
+    } catch {
+      setCameraError("Kamera tidak bisa diakses. Pastikan izin kamera sudah diberikan di browser.");
+    }
+  }
+
+  function stopCamera() {
+    clearInterval(intervalRef.current);
+    intervalRef.current = null;
+    streamRef.current?.getTracks().forEach((t) => t.stop());
+    streamRef.current = null;
+    isBusyRef.current = false;
+    setLiveActive(false);
+    setLiveStatus("idle");
+  }
+
+  function captureAndPredict() {
+    if (isBusyRef.current) return;
+    const video = videoRef.current;
+    const canvas = canvasRef.current;
+    if (!video || !canvas || video.readyState < 2) return;
+    canvas.width = video.videoWidth;
+    canvas.height = video.videoHeight;
+    canvas.getContext("2d").drawImage(video, 0, 0);
+    canvas.toBlob(async (blob) => {
+      if (!blob) return;
+      isBusyRef.current = true;
+      setLiveStatus("scanning");
+      try {
+        const f = new File([blob], "live.jpg", { type: "image/jpeg" });
+        const data = await predictFruit(f);
+        applyResult(data);
+        setLiveStatus("done");
+      } catch {
+        setLiveStatus("idle");
+      } finally {
+        isBusyRef.current = false;
+      }
+    }, "image/jpeg", 0.85);
+  }
+
+  function switchMode(m) {
+    if (m === mode) return;
+    stopCamera();
+    reset();
+    setMode(m);
+  }
 
   return (
     <main className="wrap deteksi">
       <div className="center-head">
         <h1 className="big">Analisis Kualitas Buah</h1>
-        <p className="lead">Unggah foto buah Anda dengan resolusi tinggi. Mesin neural kami mengidentifikasi kematangan, cacat, dan kesegaran secara keseluruhan dalam hitungan detik.</p>
+        <p className="lead">Unggah foto atau gunakan kamera langsung. Mesin neural kami mengidentifikasi kematangan dan kesegaran buah dalam hitungan detik.</p>
+      </div>
+
+      {/* Mode toggle */}
+      <div className="mode-tabs">
+        <button className={"mode-tab" + (mode === "upload" ? " active" : "")} onClick={() => switchMode("upload")}>
+          <FileUp size={15} /> Upload Foto
+        </button>
+        <button className={"mode-tab" + (mode === "live" ? " active" : "")} onClick={() => switchMode("live")}>
+          <Camera size={15} /> Live Detection
+        </button>
       </div>
 
       <div className="det-grid">
-        {/* upload */}
+        {/* Panel kiri */}
         <div className="card pad">
-          <div className={"dropzone" + (dragging ? " drag" : "") + (imageUrl ? " has" : "")}
-            onDragOver={(e) => { e.preventDefault(); setDragging(true); }}
-            onDragLeave={() => setDragging(false)}
-            onDrop={(e) => { e.preventDefault(); setDragging(false); handleFiles(e.dataTransfer.files); }}
-            onClick={() => !imageUrl && inputRef.current?.click()}>
-            {imageUrl ? (
-              <>
-                <img className="preview" src={imageUrl} alt="" />
-                {status === "loading" && <div className="scanline" />}
-                <button className="btn btn-outline sm reset" onClick={(e) => { e.stopPropagation(); reset(); }}><RotateCcw size={14} /> Ganti</button>
-              </>
-            ) : (
-              <>
-                <span className="ico-mint big-ico"><FileUp size={30} /></span>
-                <h3>Letakkan gambar di sini</h3>
-                <p>Mendukung format JPG, PNG, dan RAW hingga 20MB.</p>
-                <button className="btn btn-primary" onClick={(e) => { e.stopPropagation(); inputRef.current?.click(); }}>Pilih dari Perangkat</button>
-              </>
-            )}
-            <input ref={inputRef} type="file" accept="image/*" hidden onChange={(e) => handleFiles(e.target.files)} />
-          </div>
 
-          {(status === "loading" || status === "done") && (
-            <div className="progress">
-              <div className="progress-top"><span>{status === "loading" ? "Memindai Geometri..." : "Selesai"}</span><strong>{Math.round(progress)}%</strong></div>
-              <div className="bar"><div className="bar-fill" style={{ width: progress + "%" }} /></div>
-            </div>
+          {/* ── Mode Upload ── */}
+          {mode === "upload" && (
+            <>
+              <div className={"dropzone" + (dragging ? " drag" : "") + (imageUrl ? " has" : "")}
+                onDragOver={(e) => { e.preventDefault(); setDragging(true); }}
+                onDragLeave={() => setDragging(false)}
+                onDrop={(e) => { e.preventDefault(); setDragging(false); handleFiles(e.dataTransfer.files); }}
+                onClick={() => !imageUrl && inputRef.current?.click()}>
+                {imageUrl ? (
+                  <>
+                    <img className="preview" src={imageUrl} alt="" />
+                    {status === "loading" && <div className="scanline" />}
+                    <button className="btn btn-outline sm reset" onClick={(e) => { e.stopPropagation(); reset(); }}><RotateCcw size={14} /> Ganti</button>
+                  </>
+                ) : (
+                  <>
+                    <span className="ico-mint big-ico"><FileUp size={30} /></span>
+                    <h3>Letakkan gambar di sini</h3>
+                    <p>Mendukung format JPG, PNG, dan RAW hingga 20MB.</p>
+                    <button className="btn btn-primary" onClick={(e) => { e.stopPropagation(); inputRef.current?.click(); }}>Pilih dari Perangkat</button>
+                  </>
+                )}
+                <input ref={inputRef} type="file" accept="image/*" hidden onChange={(e) => handleFiles(e.target.files)} />
+              </div>
+              {(status === "loading" || status === "done") && (
+                <div className="progress">
+                  <div className="progress-top"><span>{status === "loading" ? "Memindai..." : "Selesai"}</span><strong>{Math.round(progress)}%</strong></div>
+                  <div className="bar"><div className="bar-fill" style={{ width: progress + "%" }} /></div>
+                </div>
+              )}
+              {imageUrl && status !== "loading" && status !== "done" && (
+                <button className="btn btn-primary block" onClick={analyze}><ScanSearch size={16} /> Analisis Kesegaran</button>
+              )}
+              {status === "error" && <div className="error-box">{errorMsg}<button className="link" onClick={demo}>Lihat contoh hasil →</button></div>}
+              {!imageUrl && <button className="link demo" onClick={demo}>Belum punya gambar? Lihat contoh hasil →</button>}
+            </>
           )}
-          {imageUrl && status !== "loading" && status !== "done" && (
-            <button className="btn btn-primary block" onClick={analyze}><ScanSearch size={16} /> Analisis Kesegaran</button>
+
+          {/* ── Mode Live ── */}
+          {mode === "live" && (
+            <>
+              <div className="live-wrap">
+                <video ref={videoRef} autoPlay playsInline muted className={"live-video" + (liveActive ? "" : " hidden")} />
+                <canvas ref={canvasRef} hidden />
+                {!liveActive && (
+                  <div className="live-placeholder">
+                    <span className="ico-mint big-ico"><Camera size={30} /></span>
+                    <h3>Kamera Belum Aktif</h3>
+                    <p>Arahkan kamera ke buah. Deteksi berjalan otomatis setiap 3 detik.</p>
+                  </div>
+                )}
+                {liveActive && liveStatus === "scanning" && <div className="scanline" />}
+                {liveActive && (
+                  <div className="live-badge">
+                    <span className="live-dot" /> LIVE
+                  </div>
+                )}
+              </div>
+              {cameraError && <div className="error-box" style={{ marginTop: 12 }}>{cameraError}</div>}
+              <div style={{ display: "flex", gap: 12, marginTop: 16 }}>
+                {!liveActive ? (
+                  <button className="btn btn-primary block" onClick={startCamera}><Camera size={15} /> Mulai Kamera</button>
+                ) : (
+                  <button className="btn btn-outline block" onClick={stopCamera}><RotateCcw size={14} /> Stop Kamera</button>
+                )}
+              </div>
+              {liveActive && (
+                <p className="live-info">Deteksi otomatis setiap 3 detik • {liveStatus === "scanning" ? "Memindai..." : liveStatus === "done" ? "Hasil diperbarui" : "Menunggu frame..."}</p>
+              )}
+            </>
           )}
-          {status === "error" && <div className="error-box">{errorMsg}<button className="link" onClick={demo}>Lihat contoh hasil →</button></div>}
-          {!imageUrl && <button className="link demo" onClick={demo}>Belum punya gambar? Lihat contoh hasil →</button>}
         </div>
 
         {/* results */}
@@ -298,9 +420,12 @@ function Deteksi() {
               </div>
               <div className="score-num"><strong className={result && (result.uncertain || !result.fresh) ? "red" : ""}>{result ? result.score : "--"}%</strong><small>{result?.uncertain ? "KEYAKINAN" : "SKOR KUALITAS"}</small></div>
             </div>
-            {imageUrl ? (
+            {(imageUrl || mode === "live") ? (
               <div className="result-img-wrap" style={{ margin: "16px 0", opacity: result && !result.uncertain ? 1 : 0.6 }}>
-                <img src={imageUrl} alt="Foto buah" className="result-img" />
+                {imageUrl
+                  ? <img src={imageUrl} alt="Foto buah" className="result-img" />
+                  : <div style={{ height: 230, background: "#0d1b2a", display: "flex", alignItems: "center", justifyContent: "center", color: "rgba(255,255,255,.4)", fontSize: 13 }}>{liveActive ? "Frame dianalisis dari kamera" : "Kamera belum aktif"}</div>
+                }
                 {result && !result.uncertain && (
                   <div className="visual-tags">
                     <span className="vt-dark">{result.grade}</span>
@@ -549,7 +674,21 @@ a{cursor:pointer;}
 
 /* deteksi */
 .deteksi{padding-top:60px;}
-.det-grid{display:grid;grid-template-columns:1.15fr 1fr;gap:24px;align-items:start;margin-top:40px;}
+.mode-tabs{display:flex;gap:8px;margin-top:32px;background:#eef1f8;border-radius:14px;padding:6px;width:fit-content;}
+.mode-tab{display:inline-flex;align-items:center;gap:7px;font-family:inherit;font-weight:700;font-size:14px;border:none;border-radius:10px;padding:10px 20px;cursor:pointer;background:transparent;color:var(--body);transition:.15s;}
+.mode-tab.active{background:#fff;color:var(--green);box-shadow:0 1px 4px rgba(13,27,42,.1);}
+.mode-tab:hover:not(.active){color:var(--green);}
+.det-grid{display:grid;grid-template-columns:1.15fr 1fr;gap:24px;align-items:start;margin-top:20px;}
+.live-wrap{position:relative;border-radius:14px;overflow:hidden;background:#0d1b2a;min-height:300px;display:flex;align-items:center;justify-content:center;}
+.live-video{width:100%;height:300px;object-fit:cover;display:block;}
+.live-video.hidden{display:none;}
+.live-placeholder{display:flex;flex-direction:column;align-items:center;justify-content:center;text-align:center;padding:40px;gap:12px;color:#fff;}
+.live-placeholder h3{color:#fff;font-size:20px;}
+.live-placeholder p{color:rgba(255,255,255,.6);font-size:14px;}
+.live-placeholder .ico-mint{background:rgba(255,255,255,.1);color:#fff;}
+.live-badge{position:absolute;top:12px;left:12px;display:flex;align-items:center;gap:6px;background:rgba(220,38,38,.9);color:#fff;font-size:12px;font-weight:800;padding:5px 11px;border-radius:999px;letter-spacing:.05em;}
+.live-dot{width:7px;height:7px;border-radius:50%;background:#fff;animation:blink 1s infinite;}
+.live-info{font-size:12.5px;color:var(--muted);margin-top:10px;text-align:center;}
 .det-right{display:flex;flex-direction:column;gap:24px;}
 .dropzone{position:relative;border:2px dashed #c9e3d0;border-radius:14px;background:#f2faf4;min-height:300px;display:flex;flex-direction:column;align-items:center;justify-content:center;text-align:center;padding:40px;cursor:pointer;overflow:hidden;}
 .dropzone.drag{border-color:var(--green);background:var(--mint);}
