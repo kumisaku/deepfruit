@@ -195,11 +195,7 @@ function Deteksi() {
   const [liveStatus, setLiveStatus] = useState("idle"); // idle | scanning | done
   const [cameraError, setCameraError] = useState("");
 
-  const [history, setHistory] = useState([
-    { date: "Oct 24, 2023", fruit: "Nanas (Premium)", score: 92, tone: "good", kind: "pineapple" },
-    { date: "Oct 23, 2023", fruit: "Pisang (Terlalu Matang)", score: 64, tone: "warn", kind: "banana" },
-    { date: "Oct 21, 2023", fruit: "Jeruk (Standar)", score: 88, tone: "good", kind: "orange" },
-  ]);
+  const [history, setHistory] = useState([]);
 
   // Bersihkan kamera saat ganti mode atau unmount
   React.useEffect(() => {
@@ -256,7 +252,14 @@ function Deteksi() {
         : "Spesimen menunjukkan tanda penurunan kualitas. Tidak direkomendasikan untuk konsumsi. Pisahkan dari buah segar lainnya untuk mencegah penyebaran.",
     });
     setStatus("done");
-    setHistory((h) => [{ date: today(), fruit: cap((data.fruit || "Buah").trim()), score: fresh ? Math.max(conf, 70) : Math.min(100 - conf, 60), tone: fresh ? "good" : "warn", kind: guessKind(data.fruit) }, ...h].slice(0, 4));
+    setHistory((h) => [{
+      date: today(),
+      fruit: cap((data.fruit || "Buah").trim()),
+      score: fresh ? Math.max(conf, 70) : Math.min(100 - conf, 60),
+      tone: fresh ? "good" : "warn",
+      label: fresh ? "Segar" : "Busuk",
+      thumb: imageUrl,
+    }, ...h].slice(0, 8));
   }
 
   function demo() { applyResult({ confidence: 0.95, layak: true, status: "fresh", fruit: "apel" }); }
@@ -467,15 +470,26 @@ function Deteksi() {
 
       <section className="riwayat">
         <h2 className="center-only">Riwayat</h2>
-        <div className="grid-3">
-          {history.map((h, i) => (
-            <div className="hist" key={i}>
-              <Photo kind={h.kind} style={{ width: 48, height: 48, borderRadius: 12, flex: "none" }} />
-              <div className="hist-body"><small>{h.date}</small><strong>{h.fruit}</strong></div>
-              <span className={"hist-score " + (h.tone === "warn" ? "red" : "green")}>{h.score}%</span>
-            </div>
-          ))}
-        </div>
+        {history.length === 0 ? (
+          <p className="hist-empty">Belum ada riwayat. Lakukan analisis buah untuk mulai mencatat.</p>
+        ) : (
+          <div className="grid-3">
+            {history.map((h, i) => (
+              <div className="hist" key={i}>
+                {h.thumb
+                  ? <img src={h.thumb} alt={h.fruit} className="hist-thumb" />
+                  : <div className={"hist-dot " + (h.tone === "warn" ? "red" : "green")} />
+                }
+                <div className="hist-body">
+                  <small>{h.date}</small>
+                  <strong>{h.fruit}</strong>
+                  <span className={"hist-label " + (h.tone === "warn" ? "red" : "green")}>{h.label}</span>
+                </div>
+                <span className={"hist-score " + (h.tone === "warn" ? "red" : "green")}>{h.score}%</span>
+              </div>
+            ))}
+          </div>
+        )}
       </section>
     </main>
   );
@@ -739,11 +753,18 @@ a{cursor:pointer;}
 .estimate-note{font-size:11.5px;line-height:1.5;color:var(--muted);margin-top:14px;opacity:.85;}
 .riwayat{margin:64px 0 80px;}
 .center-only{text-align:center;font-size:30px;}
+.hist-empty{text-align:center;color:var(--muted);font-size:14px;margin-top:16px;}
 .hist{display:flex;align-items:center;gap:14px;background:#fff;border:1px solid var(--line);border-radius:14px;padding:14px;}
+.hist-thumb{width:48px;height:48px;border-radius:10px;object-fit:cover;flex:none;}
+.hist-dot{width:48px;height:48px;border-radius:10px;flex:none;background:var(--mint);}
+.hist-dot.red{background:#fee2e2;}
 .hist-body{flex:1;min-width:0;}
-.hist-body small{font-size:11.5px;color:var(--muted);}
+.hist-body small{font-size:11px;color:var(--muted);display:block;}
 .hist-body strong{display:block;font-size:14px;color:var(--ink);white-space:nowrap;overflow:hidden;text-overflow:ellipsis;}
-.hist-score{font-size:18px;font-weight:800;}
+.hist-label{font-size:11.5px;font-weight:700;margin-top:3px;display:block;}
+.hist-label.green{color:var(--green);}
+.hist-label.red{color:var(--red);}
+.hist-score{font-size:18px;font-weight:800;flex:none;}
 .hist-score.green{color:var(--green);}
 
 /* cara kerja */
