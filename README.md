@@ -54,7 +54,7 @@ npm run dev
 Buka `http://localhost:5173`. Halaman **Deteksi** akan memanggil backend.
 Kalau backend belum jalan, tombol "Lihat contoh hasil" tetap menampilkan tampilan hasil.
 
-## Tentang Model AI (penting untuk laporan)
+## Tentang Model AI
 
 **Tugas model:** klasifikasi gambar 2 kategori — **segar vs busuk** — beserta skor
 keyakinan (confidence). Bisa mencakup banyak jenis buah; jumlah kelas terdeteksi
@@ -69,7 +69,7 @@ di `backend/main.py`), sistem mengembalikan status **"Tidak Yakin"** dan tidak
 memaksakan tebakan. Ini mencegah model salah dengan percaya diri saat diberi foto
 buruk atau bukan buah.
 
-## Batasan Jujur & Pengembangan Lanjut (Future Work)
+## Batasan Jujur & Pengembangan Lanjut
 
 Bagian ini sengaja ditulis terbuka karena penting secara akademis:
 
